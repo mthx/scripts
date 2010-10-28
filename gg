@@ -1,0 +1,69 @@
+#!/usr/bin/env python
+
+import curses
+import os
+import simplejson
+import subprocess
+import sys
+import urllib, urllib2
+
+"""
+Command line google search using the REST API documented at
+
+http://code.google.com/apis/ajaxsearch/documentation
+
+Author: Matt Hillsdon <matt@hillsdon.net>
+"""
+
+EXIT_SUCCESS = 0
+EXIT_ARGS = 1
+
+URL_TEMPLATE = "http://ajax.googleapis.com/ajax/services/search/web?v=1.0&q=%s"
+REFERRER = "http://matt.hillsdon.net/gg"
+
+def get_json(query):
+    url = URL_TEMPLATE % (urllib.quote(query), )
+    request = urllib2.Request(url, None, {"Referer": REFERRER})
+    response = urllib2.urlopen(request)
+    json = simplejson.load(response)
+    return json["responseData"]["results"]
+
+def bs_as_escapes(s):
+    bold = curses.tigetstr("bold")
+    normal = curses.tigetstr("sgr0")
+    return s.replace("<b>", bold).replace("</b>", normal)
+
+def print_results(json):
+    for entry in json:
+        print bs_as_escapes("<b>" + entry["titleNoFormatting"] + "</b>")
+        print bs_as_escapes(entry["content"])
+        print entry["url"]
+        print
+        
+def usage(name, out):
+    print >>out, "Usage: %s <query>" % (name,)
+
+def get_query(args):
+    query = " ".join(args)
+    return query.strip()
+
+if __name__ == "__main__":
+    name = os.path.basename(sys.argv[0])
+    if '-h' in sys.argv or '--help' in sys.argv:
+        usage(name, sys.stdout)
+        sys.exit(EXIT_SUCCESS)
+
+    query = get_query(sys.argv[1:])
+    if query is None or len(query) == 0:
+        usage(name, sys.stderr)
+        sys.exit(EXIT_ARGS)
+
+    curses.setupterm()
+    json = get_json(query)
+    if name == 'ifl':
+        if len(json) > 0:
+            # Does e.g. www-browser do the right thing?
+            subprocess.call(['gnome-open', list(json)[0]['url']])
+    else:
+        print_results(json)
+
