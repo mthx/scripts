@@ -19,5 +19,7 @@ if __name__ == "__main__":
         print USAGE
         sys.exit(0)
 
+    if len(args) == 0:
+        args = ["."]
     for a in args:
         print os.path.abspath(a)
