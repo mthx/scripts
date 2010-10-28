@@ -1,0 +1,5 @@
+#!/bin/sh
+
+P=$(abspath "$1")
+# Three slashes for gnome-terminal Ctrl-Click.
+echo file://"$P"
