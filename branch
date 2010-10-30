@@ -15,7 +15,8 @@ from xml.dom import minidom
 def get_svn_url_or_exit():
     command = ["svn", "--non-interactive", "--xml", "info"]
     xml, error = Popen(command, stdout=PIPE, stderr=PIPE).communicate()
-    if error.strip():
+    error = error.strip()
+    if error:
         print >> sys.stderr, error
         sys.exit(1)
     return minidom.parseString(xml).getElementsByTagName("url")[0].firstChild.data
