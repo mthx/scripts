@@ -1,0 +1,15 @@
+#!/usr/bin/env python
+
+import os
+import sys
+
+USAGE="Usage: extension <f1>...<fn>"
+
+if __name__ == "__main__":
+    args = sys.argv[1:]
+    if "-h" in args or "--help" in args:
+        print USAGE
+        sys.exit(0)
+
+    for a in args:
+        print os.path.splitext(a)[1][1:]
