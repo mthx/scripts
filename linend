@@ -1,0 +1,29 @@
+#!/usr/bin/env python
+
+from __future__ import with_statement
+
+import sys
+
+USAGE="Usage: linend <FILE>"
+
+def _format_newlines(newlines):
+    def format_internal(s):
+        return "none" if s is None else "".join("LF" if c == '\n' else 'CR' for c in s)
+    if type(newlines) == tuple:
+        return "(" + ", ".join(format_internal(x) for x in newlines) + ")"
+    return format_internal(newlines)
+
+if __name__ == "__main__":
+    args = sys.argv[1:]
+    if "-h" in args or "--help" in args:
+        print USAGE
+        sys.exit(0)
+    if len(args) != 1:
+        print >>sys.stderr, USAGE
+        sys.exit(1)
+    with open(sys.argv[1], "rU") as fin:
+        for _ in fin:
+            pass
+    print _format_newlines(fin.newlines)
+
+
