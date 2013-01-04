@@ -3,7 +3,7 @@
 """
 Script to output the absolute path of a file.
 
-Have I missed the standard UNIX command that does this?
+This is very similar to "readlink -f" but I'm used to this now.
 
 Author: Matt Hillsdon <matt@hillsdon.net>
 """
