@@ -4,7 +4,7 @@
 # mth 2005-07-20.
 
 function die {
-  echo $1
+  echo "$1"
   exit 1
 }
 
@@ -12,11 +12,11 @@ function die {
 # then create a directory for it using the zip name minus
 # the extension.
 
-if [[ `zipinfo -1 $1 | cut -f 1 -d / | uniq | wc -l` > 1 ]]; 
+if [[ `zipinfo -1 "$1" | cut -f 1 -d / | uniq | wc -l` > 1 ]]; 
 then
-  DIR=${1%.[^.]*}
+  DIR="${1%.[^.]*}"
   PREF="../"
-  mkdir $DIR
+  mkdir "$DIR"
   if [ "$?" -ne 0 ]
   then
     die "Failed to create $DIR, please unzip manually".
@@ -26,7 +26,7 @@ else
   DIR="."
 fi
 
-pushd $DIR
-unzip $PREF$1
+pushd "$DIR"
+unzip "$PREF$1"
 popd
 
