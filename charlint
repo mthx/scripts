@@ -2,7 +2,7 @@
 
 import codecs
 import sys
-
+sys.stdout = codecs.getwriter('utf-8')(sys.stdout)
 
 CHARS_CONTEXT = 25
 
