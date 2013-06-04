@@ -1,0 +1,19 @@
+#!/usr/bin/env python
+
+import codecs
+import sys
+
+
+CHARS_CONTEXT = 25
+
+f = codecs.open(sys.argv[1], encoding='utf-8')
+line = 1
+for l in f:
+    l = l.rstrip("\r\n")
+    character = 0
+    for c in l:
+       if ord(c) > 127 and ord(c) != 160:
+           context = "..." + l[max(0, character - CHARS_CONTEXT) : min(character + CHARS_CONTEXT, len(l))] + "..."
+           print "%d:%-4d\t%s\t%s\t%s" % (line, character, hex(ord(c)), c, context)
+       character = character + 1
+    line = line + 1
