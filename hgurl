@@ -1,0 +1,11 @@
+#!/bin/bash
+
+# QND script to give the hg web URL corresponding to a file in the checkout.
+# No thought has been given to branches or revisions and the -1 was a guess...
+
+FILE=${1:-.}
+URL_BASE=$(hg paths default)
+STRIP=$(hg root)
+WORKING=$(readlink -f $FILE)
+URL_REL=${WORKING#$STRIP}
+echo "$URL_BASE/file/-1$URL_REL"
