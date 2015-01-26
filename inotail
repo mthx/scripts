@@ -1,0 +1,5 @@
+#!/bin/sh
+
+# This could obviously be a lot cleverer.  A glob or regex as input would be nicer than two args.
+# Usage: inotail /tmp/ error.log
+inotifywait -q -m -r $1 --format '%w%f' | grep --line-buffered $2  | while read n; do tail -f $n; exit; done
