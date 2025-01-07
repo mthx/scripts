@@ -11,15 +11,15 @@ USAGE="""Usage: linlen <LENGTH> <FILE>
 if __name__ == "__main__":
     args = sys.argv[1:]
     if "-h" in args or "--help" in args:
-        print USAGE
+        print(USAGE)
         sys.exit(0)
     if len(args) == 0:
-        print >>sys.stderr, USAGE
+        print(USAGE, file=sys.stderr)
         sys.exit(1)
     try:
         limit = 80 if len(args) == 1 else int(args[0])
     except ValueError:
-        print >>sys.stderr, "Invalid line length"
+        print("Invalid line length", file=sys.stderr)
         sys.exit(1)
         
     line = 1
@@ -30,7 +30,7 @@ if __name__ == "__main__":
             length = len(l)   
             if length > limit:
                 failures = failures + 1
-                print "%d: %s" % (length, l)
+                print("%d: %s" % (length, l))
         line = line + 1
     sys.exit(2 if failures else 0)
 

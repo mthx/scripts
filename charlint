@@ -2,7 +2,6 @@
 
 import codecs
 import sys
-sys.stdout = codecs.getwriter('utf-8')(sys.stdout)
 
 CHARS_CONTEXT = 25
 
@@ -16,8 +15,8 @@ try:
         for c in l:
            if ord(c) > 127 and ord(c) != 160:
                context = "..." + l[max(0, character - CHARS_CONTEXT) : min(character + CHARS_CONTEXT, len(l))] + "..."
-               print "%s: %d:%-6d\t%s\t%s\t%s" % (path, line, character, hex(ord(c)), c, context)
+               print("%s: %d:%-6d\t%s\t%s\t%s" % (path, line, character, hex(ord(c)), c, context))
            character = character + 1
         line = line + 1
-except UnicodeDecodeError, e:
-    print "%s: %s" % (path, str(e))
+except UnicodeDecodeError as e:
+    print("%s: %s" % (path, str(e)))

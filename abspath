@@ -16,10 +16,10 @@ USAGE="Usage: abspath <f1>...<fn>"
 if __name__ == "__main__":
     args = sys.argv[1:]
     if "-h" in args or "--help" in args:
-        print USAGE
+        print(USAGE)
         sys.exit(0)
 
     if len(args) == 0:
         args = ["."]
     for a in args:
-        print os.path.abspath(a)
+        print(os.path.abspath(a))

@@ -1,5 +1,0 @@
-#!/bin/sh
-EXTENSIONS_LOCATION="/usr/share/gnome-shell/extensions/"
-LIST=$(find "$EXTENSIONS_LOCATION" -mindepth 1 -maxdepth 2 -type d -printf "'%f', " | sed 's/, $//')
-VALUE="[$LIST]"
-exec gsettings set org.gnome.shell enabled-extensions "$VALUE"
