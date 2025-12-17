@@ -1,0 +1,6 @@
+#!/usr/bin/env bash
+# aws cli has 1Password support but sam does not, so use aws configure to export
+# the credentials before exec-ing sam
+set -euo pipefail
+eval "$(op plugin run -- aws configure export-credentials --format env)"
+exec /usr/local/bin/sam "$@"
