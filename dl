@@ -1,0 +1,112 @@
+#!/bin/zsh
+# Output file from ~/Downloads (defaults to most recently created)
+
+show_help() {
+    cat << 'EOF'
+dl - Get files from ~/Downloads
+
+USAGE:
+    dl [OPTIONS] [PATTERN]
+
+OPTIONS:
+    -a, --all       Show all matching files (most recent first)
+    -h, --help      Show this help message
+
+PATTERN:
+    If PATTERN contains glob characters (* or ?), it's used as-is.
+    Otherwise, it's treated as a file extension (e.g., 'zip' becomes '*.zip')
+
+EXAMPLES:
+    dl              Latest file of any type
+    dl -a           All files (most recent first)
+    dl zip          Latest .zip file
+    dl -a zip       All .zip files
+    dl .pdf         Latest .pdf file (leading dot optional)
+    dl "*.pdf"      Latest .pdf file (explicit glob)
+    dl "report*"    Latest file starting with "report"
+    dl -a "IMG*"    All files starting with "IMG"
+
+SHELL USAGE:
+    cp $(dl) ~/Documents         Copy latest download
+    cp $(dl zip) .               Copy latest zip file
+    open $(dl)                   Open latest download
+
+ZSH TAB EXPANSION:
+    Type 'cp dl' then press TAB to expand to the actual filename
+    Type 'cp dl zip' then press TAB to expand to latest zip filename
+EOF
+}
+
+# Parse flags
+show_all=false
+while [[ "$1" == -* ]]; do
+    case "$1" in
+        -a|--all)
+            show_all=true
+            shift
+            ;;
+        -h|--help)
+            show_help
+            exit 0
+            ;;
+        *)
+            echo "Unknown option: $1" >&2
+            echo "Try 'dl --help' for more information." >&2
+            exit 1
+            ;;
+    esac
+done
+
+# Process optional pattern argument
+name_filter=""
+if [[ -n "$1" ]]; then
+    # If pattern contains glob chars (* or ?), use as-is
+    if [[ "$1" == *[\*\?]* ]]; then
+        pattern="$1"
+    else
+        # Treat as extension - strip leading dot if present and add *. prefix
+        ext="${1#.}"
+        pattern="*.${ext}"
+    fi
+    name_filter="-name $pattern"
+fi
+
+# Detect OS and use appropriate stat format
+if [[ "$(uname)" == "Darwin" ]]; then
+    # macOS (BSD stat) - use birth time
+    STAT_FORMAT="%B %N"
+    STAT_FLAG="-f"
+else
+    # Linux (GNU stat) - use modification time since birth time
+    # is not consistently available across filesystems
+    STAT_FORMAT="%Y %n"
+    STAT_FLAG="-c"
+fi
+
+# Find all files (not directories) and sort by time
+# Using -print0 and xargs -0 to handle filenames with spaces/special chars
+if $show_all; then
+    # Show all files, most recent first
+    result=$(find ~/Downloads -maxdepth 1 -type f ${=name_filter} -print0 2>/dev/null | \
+             xargs -0 stat $STAT_FLAG "$STAT_FORMAT" 2>/dev/null | \
+             sort -rn | \
+             cut -d' ' -f2-)
+else
+    # Show only the most recent file
+    result=$(find ~/Downloads -maxdepth 1 -type f ${=name_filter} -print0 2>/dev/null | \
+             xargs -0 stat $STAT_FLAG "$STAT_FORMAT" 2>/dev/null | \
+             sort -rn | \
+             head -1 | \
+             cut -d' ' -f2-)
+fi
+
+if [[ -n "$result" ]]; then
+    echo "$result"
+else
+    if [[ -n "$pattern" ]]; then
+        echo "No files matching '$pattern' found in ~/Downloads" >&2
+    else
+        echo "No files found in ~/Downloads" >&2
+    fi
+    exit 1
+fi
