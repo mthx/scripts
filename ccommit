@@ -8,11 +8,11 @@ cat <<EOF | claude -p --dangerously-skip-permissions --allowedTools "Read,Glob,G
 Analyze the current git changes and draft a commit message.
 
 - Review staged and unstaged changes
-- Check recent commits for style (git log)
 - Stage relevant files (avoiding .env/secrets)
 - Write a concise commit message to $COMMIT_MSG_FILE
 
-DO NOT run git commit yourself - just stage files and write the message.
+DO NOT run git commit.
+DO NOT write any output other than the commit message file.
 EOF
 
 git commit -e -F "$COMMIT_MSG_FILE"
