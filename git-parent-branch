@@ -1,0 +1,12 @@
+#!/bin/bash
+# Find the parent branch in a stacked PR workflow.
+# Walks back through commits and finds the first one with another branch pointing at it.
+
+current=$(git branch --show-current)
+git rev-list HEAD | while read sha; do
+  branch=$(git branch --points-at "$sha" --format="%(refname:short)" | grep -v "^$current$" | head -1)
+  if [ -n "$branch" ]; then
+    echo "$branch"
+    break
+  fi
+done
