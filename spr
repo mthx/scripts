@@ -1,4 +1,4 @@
 #!/bin/bash
 # Open GitHub web UI with a PR targetting the origin repo (this will avoid
 # targetting upstream for fork and the base branch of the current branch)
-gh pr create --repo $(gh repo view $(git remote get-url origin) --json nameWithOwner -q .nameWithOwner) --base "$(git parent-branch)" --web
+gh pr create --repo "$(gh repo view $(git remote get-url origin) --json nameWithOwner -q .nameWithOwner)" --base "$(git parent-branch)" --web
