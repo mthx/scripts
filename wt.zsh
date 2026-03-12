@@ -17,15 +17,21 @@ function wt() {
     "") _wt_list "$main_worktree" ;;
     -d|--delete) shift; _wt_delete "$main_worktree" "$@" ;;
     -h|--help) _wt_help ;;
-    .) _wt_ghostty_switch_or_create "$main_worktree" "${main_worktree:t}" "$(git -C "$main_worktree" branch --show-current 2>/dev/null || echo main)" ;;
+    .) _wt_ghostty_switch_or_create "$main_worktree" "${main_worktree:t}" "$(git -C "$main_worktree" branch --show-current 2>/dev/null || git -C "$main_worktree" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' || echo detached)" ;;
     *) _wt_create_or_switch "$main_worktree" "$1" ;;
   esac
 }
 
 # Sanitize branch name for use as directory suffix
 # feature/cool-thing → feature-cool-thing
+# Rejects names that would escape the sibling directory
 function _wt_dir_suffix() {
-  printf '%s\n' "${1//\//-}"
+  local name="${1//\//-}"
+  if [[ "$name" == *..* || "$name" == -* || -z "$name" ]]; then
+    echo "wt: invalid branch name: $1" >&2
+    return 1
+  fi
+  printf '%s\n' "$name"
 }
 
 # List worktrees, cd via fzf if available
@@ -62,7 +68,8 @@ function _wt_list() {
 function _wt_create_or_switch() {
   local main_worktree="$1"
   local branch="$2"
-  local suffix="$(_wt_dir_suffix "$branch")"
+  local suffix
+  suffix="$(_wt_dir_suffix "$branch")" || return 1
   local target="${main_worktree}--${suffix}"
   local repo_name="${main_worktree:t}"
 
@@ -77,7 +84,7 @@ function _wt_create_or_switch() {
 
   # Branch already checked out in another worktree — cd there
   local existing
-  existing=$(git worktree list --porcelain 2>/dev/null | awk '/^worktree /{path=$0} /^branch refs\/heads\/'"$branch"'$/{print path}' | sed 's/^worktree //')
+  existing=$(git worktree list --porcelain 2>/dev/null | awk -v b="$branch" '/^worktree /{path=$0} $0 == "branch refs/heads/" b {print path}' | sed 's/^worktree //')
   if [[ -n "$existing" ]]; then
     _wt_ghostty_switch_or_create "$existing" "$repo_name" "$branch"
     return
@@ -136,7 +143,8 @@ function _wt_delete() {
       return 1
     fi
   else
-    local suffix="$(_wt_dir_suffix "$branch")"
+    local suffix
+    suffix="$(_wt_dir_suffix "$branch")" || return 1
     target="${main_worktree}--${suffix}"
   fi
 
@@ -159,6 +167,12 @@ function _wt_ghostty_switch_or_create() {
   local repo_name="$2"
   local branch="$3"
   local tab_title="${repo_name}[${branch}]"
+
+  # Already here — nothing to do
+  if [[ "$PWD" = "$target_dir" || "$PWD" = "$target_dir/"* ]]; then
+    echo "wt: already in $tab_title"
+    return
+  fi
 
   # If not running in Ghostty, just cd
   if [[ "$TERM_PROGRAM" != "ghostty" ]]; then
