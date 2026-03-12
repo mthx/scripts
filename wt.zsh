@@ -31,21 +31,30 @@ function _wt_dir_suffix() {
 # List worktrees, cd via fzf if available
 function _wt_list() {
   local main_worktree="$1"
-  local worktrees
-  worktrees=$(git worktree list)
 
   if command -v fzf &>/dev/null; then
     local selected_line
-    selected_line=$(echo "$worktrees" | fzf --prompt="worktree> ")
+    selected_line=$(git worktree list | fzf \
+      --prompt="worktrees> " \
+      --header="ctrl-b: branches │ ctrl-w: worktrees" \
+      --bind "ctrl-b:reload(git for-each-ref --format='%(refname:short)' refs/heads/ refs/remotes/origin/ | sed 's|^origin/||' | sort -u)+change-prompt(branches> )" \
+      --bind "ctrl-w:reload(git worktree list)+change-prompt(worktrees> )")
     if [[ -n "$selected_line" ]]; then
-      local selected_path selected_branch
-      selected_path=$(echo "$selected_line" | awk '{print $1}')
-      selected_branch=$(echo "$selected_line" | awk '{gsub(/[\[\]]/, "", $3); print $3}')
-      local repo_name="${main_worktree:t}"
-      _wt_ghostty_switch_or_create "$selected_path" "$repo_name" "$selected_branch"
+      # Detect if this is a worktree line (has path + hash + [branch]) or a branch name
+      if [[ "$selected_line" == /* ]]; then
+        # Worktree line — extract path and branch
+        local selected_path selected_branch
+        selected_path=$(echo "$selected_line" | awk '{print $1}')
+        selected_branch=$(echo "$selected_line" | awk '{gsub(/[\[\]]/, "", $3); print $3}')
+        local repo_name="${main_worktree:t}"
+        _wt_ghostty_switch_or_create "$selected_path" "$repo_name" "$selected_branch"
+      else
+        # Branch name — treat like wt <branch>
+        _wt_create_or_switch "$main_worktree" "$selected_line"
+      fi
     fi
   else
-    echo "$worktrees"
+    git worktree list
   fi
 }
 
@@ -62,6 +71,9 @@ function _wt_create_or_switch() {
     _wt_ghostty_switch_or_create "$target" "$repo_name" "$branch"
     return
   fi
+
+  # Clean up any prunable worktrees (deleted directories) before checking
+  git worktree prune 2>/dev/null
 
   # Branch already checked out in another worktree — cd there
   local existing
