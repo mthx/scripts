@@ -18,8 +18,29 @@ function wt() {
     -d|--delete) shift; _wt_delete "$main_worktree" "$@" ;;
     -h|--help) _wt_help ;;
     .) _wt_ghostty_switch_or_create "$main_worktree" "${main_worktree:t}" "$(git -C "$main_worktree" branch --show-current 2>/dev/null || git -C "$main_worktree" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' || echo detached)" ;;
+    -) _wt_prev_switch "$main_worktree" ;;
     *) _wt_create_or_switch "$main_worktree" "$1" ;;
   esac
+}
+
+# Switch to previous worktree for this repo
+function _wt_prev_switch() {
+  local main_worktree="$1"
+  local prev_file="$main_worktree/.git/wt-prev"
+  if [[ ! -f "$prev_file" ]]; then
+    echo "wt: no previous worktree" >&2
+    return 1
+  fi
+  local prev
+  prev=$(<"$prev_file")
+  if [[ -z "$prev" || ! -d "$prev" ]]; then
+    echo "wt: previous worktree no longer exists" >&2
+    rm -f "$prev_file"
+    return 1
+  fi
+  local branch
+  branch=$(git -C "$prev" branch --show-current 2>/dev/null || echo detached)
+  _wt_ghostty_switch_or_create "$prev" "${main_worktree:t}" "$branch"
 }
 
 # Sanitize branch name for use as directory suffix
@@ -174,6 +195,15 @@ function _wt_ghostty_switch_or_create() {
     return
   fi
 
+  # Remember current worktree root for `wt -`
+  local main_worktree
+  main_worktree=$(git worktree list --porcelain 2>/dev/null | head -1 | sed 's/^worktree //')
+  if [[ -n "$main_worktree" ]]; then
+    local current_root
+    current_root=$(git rev-parse --show-toplevel 2>/dev/null)
+    printf '%s\n' "${current_root:-$PWD}" > "$main_worktree/.git/wt-prev"
+  fi
+
   # If not running in Ghostty, just cd
   if [[ "$TERM_PROGRAM" != "ghostty" ]]; then
     cd "$target_dir"
@@ -294,6 +324,7 @@ Usage:
   wt              List worktrees (fzf picker if available)
   wt <branch>     Create or switch to worktree for <branch>
   wt .            Go to main worktree
+  wt -            Switch to previous worktree (like cd -)
   wt -d [branch]  Remove worktree (defaults to current if in one)
   wt -h           Show this help
 
