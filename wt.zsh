@@ -5,16 +5,35 @@
 #
 
 function wt() {
-  local main_worktree
-  main_worktree=$(git worktree list --porcelain 2>/dev/null | head -1 | sed 's/^worktree //')
+  local main_worktree repo_arg
 
-  if [[ -z "$main_worktree" ]]; then
-    echo "wt: not in a git repository" >&2
-    return 1
+  # Parse -r <path> if present
+  if [[ "$1" == -r ]]; then
+    if [[ -z "$2" ]]; then
+      echo "wt: -r requires a path" >&2
+      return 1
+    fi
+    repo_arg="$2"
+    shift 2
+  fi
+
+  if [[ -n "$repo_arg" ]]; then
+    main_worktree=$(git -C "$repo_arg" worktree list --porcelain 2>/dev/null | head -1 | sed 's/^worktree //')
+    if [[ -z "$main_worktree" ]]; then
+      echo "wt: not a git repository: $repo_arg" >&2
+      return 1
+    fi
+  else
+    main_worktree=$(git worktree list --porcelain 2>/dev/null | head -1 | sed 's/^worktree //')
+    if [[ -z "$main_worktree" ]]; then
+      echo "wt: not in a git repository" >&2
+      return 1
+    fi
   fi
 
   case "$1" in
     "") _wt_list "$main_worktree" ;;
+    -c|--close) shift; _wt_close "$main_worktree" "$@" ;;
     -d|--delete) shift; _wt_delete "$main_worktree" "$@" ;;
     -h|--help) _wt_help ;;
     .) _wt_ghostty_switch_or_create "$main_worktree" "${main_worktree:t}" "$(git -C "$main_worktree" branch --show-current 2>/dev/null || git -C "$main_worktree" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' || echo detached)" ;;
@@ -146,33 +165,35 @@ function _wt_clone_deps() {
   fi
 }
 
-# Remove a worktree
-function _wt_delete() {
+# Resolve a worktree target from branch name or cwd
+# Sets REPLY to the target path
+function _wt_resolve_target() {
   local main_worktree="$1"
   local branch="$2"
 
-  local target
-
-  # No branch specified — infer from current worktree
   if [[ -z "$branch" ]]; then
     if [[ "$PWD" = "${main_worktree}--"* ]]; then
-      # Extract worktree root even if we're in a subdirectory
       local rest="${PWD#"${main_worktree}--"}"
-      target="${main_worktree}--${rest%%/*}"
+      REPLY="${main_worktree}--${rest%%/*}"
     else
-      echo "wt: specify a branch to delete (or run from inside a worktree)" >&2
+      echo "wt: specify a branch (or run from inside a worktree)" >&2
       return 1
     fi
   else
     local suffix
     suffix="$(_wt_dir_suffix "$branch")" || return 1
-    target="${main_worktree}--${suffix}"
+    REPLY="${main_worktree}--${suffix}"
   fi
+}
 
-  # Derive branch name for tab title from the worktree
-  local wt_branch
+# Remove a worktree (and close its Ghostty tab)
+function _wt_delete() {
+  local main_worktree="$1"
+  _wt_resolve_target "$main_worktree" "$2" || return 1
+  local target="$REPLY"
+
+  local wt_branch repo_name="${main_worktree:t}"
   wt_branch=$(git -C "$target" branch --show-current 2>/dev/null)
-  local repo_name="${main_worktree:t}"
 
   if [[ "$PWD" = "$target"* ]]; then
     cd "$main_worktree" || { echo "wt: cannot cd to $main_worktree" >&2; return 1; }
@@ -180,6 +201,23 @@ function _wt_delete() {
 
   git worktree remove "$target" && \
     [[ -n "$wt_branch" ]] && _wt_ghostty_close_tab "${repo_name}[${wt_branch}]"
+}
+
+# Close a worktree's Ghostty tab (without removing the worktree)
+function _wt_close() {
+  local main_worktree="$1"
+  _wt_resolve_target "$main_worktree" "$2" || return 1
+  local target="$REPLY"
+
+  local wt_branch repo_name="${main_worktree:t}"
+  wt_branch=$(git -C "$target" branch --show-current 2>/dev/null)
+
+  if [[ -z "$wt_branch" ]]; then
+    echo "wt: could not determine branch for $target" >&2
+    return 1
+  fi
+
+  _wt_ghostty_close_tab "${repo_name}[${wt_branch}]"
 }
 
 # Ghostty tab integration: switch to existing tab or create new one
@@ -325,8 +363,14 @@ Usage:
   wt <branch>     Create or switch to worktree for <branch>
   wt .            Go to main worktree
   wt -            Switch to previous worktree (like cd -)
-  wt -d [branch]  Remove worktree (defaults to current if in one)
+  wt -c [branch]  Close Ghostty tab for worktree (keeps worktree)
+  wt -d [branch]  Remove worktree and close its tab
+  wt -r <path>    Target a different repo (combine with any command above)
   wt -h           Show this help
+
+Examples:
+  wt -r ~/projects/app feat-x   Switch to feat-x in another repo
+  wt -r ~/projects/app -d old   Delete worktree in another repo
 
 Worktrees are created as sibling directories with a -- suffix:
   /path/to/repo          main worktree
@@ -339,27 +383,46 @@ EOF
 
 # Zsh completion: complete branch names and flags
 function _wt_complete() {
-  local -a branches flags
-  flags=(-d -h --delete --help)
+  local -a flags
+  flags=(-c -d -h -r --close --delete --help)
 
-  if [[ "$words[2]" == -d || "$words[2]" == --delete ]]; then
-    # Complete with existing worktree branches
-    local main_worktree
-    main_worktree=$(git worktree list --porcelain 2>/dev/null | head -1 | sed 's/^worktree //')
-    if [[ -n "$main_worktree" ]]; then
-      local -a wt_branches
-      wt_branches=(${(f)"$(git worktree list --porcelain 2>/dev/null | grep '^branch ' | sed 's|^branch refs/heads/||')"})
-      _describe 'worktree branch' wt_branches
+  # Find -r <path> on the line to resolve the target repo
+  local git_dir=""
+  local i
+  for (( i=2; i < CURRENT; i++ )); do
+    if [[ "$words[$i]" == -r && -n "$words[$((i+1))]" ]]; then
+      git_dir="${~words[$((i+1))]}"
+      break
     fi
+  done
+  local -a git_cmd
+  if [[ -n "$git_dir" ]]; then
+    git_cmd=(git -C "$git_dir")
   else
-    local -a remote_branches
-    branches=(${(f)"$(git for-each-ref --format='%(refname:short)' refs/heads/ 2>/dev/null)"})
-    # Strip origin/ prefix so completing "foo" works for "origin/foo"
-    remote_branches=(${(f)"$(git for-each-ref --format='%(refname:short)' refs/remotes/origin/ 2>/dev/null | sed 's|^origin/||')"})
-    _alternative \
-      'flags:flag:compadd -a flags' \
-      'branches:local branch:compadd -a branches' \
-      'remote-branches:remote branch:compadd -a remote_branches'
+    git_cmd=(git)
   fi
+
+  # Completing the path after -r
+  if [[ "$words[$((CURRENT-1))]" == -r ]]; then
+    _files -/
+    return
+  fi
+
+  # After -c or -d: complete worktree branches
+  if (( ${words[(I)-c]} || ${words[(I)--close]} || ${words[(I)-d]} || ${words[(I)--delete]} )); then
+    local -a wt_branches
+    wt_branches=(${(f)"$($git_cmd worktree list --porcelain 2>/dev/null | grep '^branch ' | sed 's|^branch refs/heads/||')"})
+    _describe 'worktree branch' wt_branches
+    return
+  fi
+
+  # Default: flags + branches
+  local -a branches remote_branches
+  branches=(${(f)"$($git_cmd for-each-ref --format='%(refname:short)' refs/heads/ 2>/dev/null)"})
+  remote_branches=(${(f)"$($git_cmd for-each-ref --format='%(refname:short)' refs/remotes/origin/ 2>/dev/null | sed 's|^origin/||')"})
+  _alternative \
+    'flags:flag:compadd -a flags' \
+    'branches:local branch:compadd -a branches' \
+    'remote-branches:remote branch:compadd -a remote_branches'
 }
 compdef _wt_complete wt
