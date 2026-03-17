@@ -1,0 +1,188 @@
+#!/usr/bin/env python3
+"""ghw - Watch GitHub Actions for the current branch and notify on completion.
+
+Usage:
+  ghw              Watch runs for HEAD commit on current branch
+  ghw --all        Watch all active runs on current branch (not just HEAD)
+  ghw --poll N     Set poll interval in seconds (default: 30)
+
+Requires: gh (authenticated), git
+Optional: alerter (brew install vjeantet/tap/alerter) for click-to-focus
+"""
+
+import argparse
+import json
+import shutil
+import subprocess
+import sys
+import time
+
+
+def run(cmd, **kwargs):
+    r = subprocess.run(cmd, capture_output=True, text=True, **kwargs)
+    if r.returncode != 0:
+        return None
+    return r.stdout.strip()
+
+
+def git(*args):
+    out = run(["git", *args])
+    if out is None:
+        print(f"ghw: git {args[0]} failed", file=sys.stderr)
+        sys.exit(1)
+    return out
+
+
+def gh_run_list(repo, branch, head_sha, head_only):
+    cmd = [
+        "gh", "run", "list", "-R", repo,
+        "--branch", branch,
+        "--json", "databaseId,name,status,conclusion,headSha,event,createdAt",
+        "--limit", "20",
+    ]
+    if head_only:
+        cmd += ["--commit", head_sha]
+    out = run(cmd)
+    return json.loads(out) if out else []
+
+
+def focus_worktree(repo_root, branch):
+    """Focus the Ghostty tab for a worktree via wt-focus."""
+    run(["zsh", "-ic", f"wt-focus -r {repo_root} {branch}"])
+
+
+def notify(title, message, sound, repo_root, branch):
+    if shutil.which("alerter"):
+        result = run([
+            "alerter",
+            "--title", title,
+            "--message", message,
+            "--sound", sound,
+            "--actions", "Focus",
+            "--group", f"ghw-{title}",
+            "--timeout", "30",
+            "--json",
+        ])
+        if result:
+            try:
+                data = json.loads(result)
+                if data.get("activationType") in ("contentsClicked", "actionClicked"):
+                    focus_worktree(repo_root, branch)
+            except json.JSONDecodeError:
+                pass
+    else:
+        # osascript fallback — no click action
+        run([
+            "osascript", "-e",
+            f'display notification "{message}" with title "{title}" sound name "{sound}"',
+        ])
+
+
+STATUS_ICONS = {
+    "success": "✓", "failure": "✗", "cancelled": "⊘", "skipped": "–",
+    "queued": "◯", "waiting": "◯", "pending": "◯", "in_progress": "●",
+}
+
+
+def print_status(runs, prev_lines):
+    # Overwrite previous output
+    if prev_lines > 0:
+        sys.stdout.write(f"\033[{prev_lines}A\033[J")
+
+    lines = []
+    for r in runs:
+        state = r["conclusion"] or r["status"]
+        icon = STATUS_ICONS.get(state, "?")
+        lines.append(f"  {icon} {r['name']} ({state})")
+
+    print("\n".join(lines))
+    sys.stdout.flush()
+    return len(lines)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--all", action="store_true", help="Watch all runs on branch, not just HEAD commit")
+    parser.add_argument("--poll", type=int, default=30, help="Poll interval in seconds (default: 30)")
+    args = parser.parse_args()
+
+    head_only = not args.all
+
+    branch = git("branch", "--show-current")
+    if not branch:
+        print("ghw: not on a branch (detached HEAD?)", file=sys.stderr)
+        sys.exit(1)
+
+    repo_root = git("rev-parse", "--show-toplevel")
+    remote_url = git("remote", "get-url", "origin")
+
+    # Extract owner/repo from SSH or HTTPS URL
+    repo = remote_url
+    for prefix in ("git@github.com:", "https://github.com/"):
+        if repo.startswith(prefix):
+            repo = repo[len(prefix):]
+            break
+    repo = repo.removesuffix(".git")
+
+    if "/" not in repo:
+        print(f"ghw: could not parse GitHub repo from origin: {remote_url}", file=sys.stderr)
+        sys.exit(1)
+
+    head_sha = git("rev-parse", "HEAD")
+    short_sha = head_sha[:7]
+
+    print(f"ghw: watching {repo} @ {branch} ({short_sha})")
+    print(f"ghw: polling every {args.poll}s")
+    print()
+
+    # Wait for runs to appear
+    runs = []
+    for attempt in range(10):
+        runs = gh_run_list(repo, branch, head_sha, head_only)
+        if runs:
+            break
+        if attempt == 0:
+            print("ghw: waiting for runs to appear...")
+        time.sleep(5)
+
+    if not runs:
+        print(f"ghw: no workflow runs found for {branch} ({short_sha})", file=sys.stderr)
+        sys.exit(1)
+
+    print(f"ghw: found {len(runs)} run(s):")
+
+    # Poll loop
+    prev_lines = 0
+    while True:
+        runs = gh_run_list(repo, branch, head_sha, head_only)
+        prev_lines = print_status(runs, prev_lines)
+
+        active = sum(1 for r in runs if r["status"] != "completed")
+        if active == 0:
+            break
+
+        time.sleep(args.poll)
+
+    print()
+
+    # Summarize and notify
+    failed = sum(1 for r in runs if r["conclusion"] == "failure")
+    cancelled = sum(1 for r in runs if r["conclusion"] == "cancelled")
+    succeeded = sum(1 for r in runs if r["conclusion"] == "success")
+    total = len(runs)
+
+    if failed:
+        print(f"ghw: ✗ FAILED ({failed}/{total} failed)")
+        notify("Build Failed", f"{repo}@{branch}: {failed}/{total} failed", "Basso", repo_root, branch)
+        sys.exit(1)
+    elif cancelled and not succeeded:
+        print(f"ghw: ⊘ CANCELLED")
+        notify("Build Cancelled", f"{repo}@{branch}: cancelled", "Basso", repo_root, branch)
+        sys.exit(1)
+    else:
+        print(f"ghw: ✓ PASSED ({succeeded}/{total} succeeded)")
+        notify("Build Passed", f"{repo}@{branch}: all green", "default", repo_root, branch)
+
+
+if __name__ == "__main__":
+    main()

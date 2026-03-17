@@ -3,6 +3,9 @@
 # Source this from .zshrc:
 #   source ~/scripts/wt.zsh
 #
+# Tab title convention: "{repo}[{branch}]" (e.g. ml-trainer[main])
+# Also used by: ghw (GitHub Actions watcher) to focus tabs on build completion
+#
 
 function wt() {
   local main_worktree repo_arg
@@ -357,6 +360,35 @@ APPLESCRIPT
   if [[ $? -ne 0 ]]; then
     echo "wt: ghostty tab close failed: $err" >&2
   fi
+}
+
+# Focus a worktree's Ghostty tab without cd'ing.
+# Usage: wt-focus [-r <repo>] <branch>
+# Used by external tools (e.g. ghw) to focus a tab by repo+branch.
+function wt-focus() {
+  local repo_arg=""
+  if [[ "$1" == -r ]]; then
+    repo_arg="$2"; shift 2
+  fi
+  local branch="$1"
+  if [[ -z "$branch" ]]; then
+    echo "wt-focus: requires a branch name" >&2
+    return 1
+  fi
+
+  local main_worktree
+  if [[ -n "$repo_arg" ]]; then
+    main_worktree=$(git -C "$repo_arg" worktree list --porcelain 2>/dev/null | head -1 | sed 's/^worktree //')
+  else
+    main_worktree=$(git worktree list --porcelain 2>/dev/null | head -1 | sed 's/^worktree //')
+  fi
+  if [[ -z "$main_worktree" ]]; then
+    echo "wt-focus: not a git repository" >&2
+    return 1
+  fi
+
+  local tab_title="${main_worktree:t}[${branch}]"
+  _wt_ghostty_select_tab "$tab_title"
 }
 
 function _wt_help() {
