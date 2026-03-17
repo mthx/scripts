@@ -59,7 +59,7 @@ def notify(title, message, sound, repo_root, branch):
             "--title", title,
             "--message", message,
             "--sound", sound,
-            "--actions", "Focus",
+            "--actions", "Show",
             "--group", f"aw-{title}",
             "--timeout", "30",
             "--json",
