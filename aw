@@ -12,6 +12,7 @@ Optional: alerter (brew install vjeantet/tap/alerter) for click-to-focus
 
 import argparse
 import json
+import re
 import shutil
 import subprocess
 import sys
@@ -131,9 +132,6 @@ def main():
     head_sha = git("rev-parse", "HEAD")
     short_sha = head_sha[:7]
 
-    print(f"aw: {repo} @ {branch} ({short_sha})")
-    print()
-
     # Wait for runs to appear
     runs = []
     for attempt in range(10):
@@ -160,24 +158,50 @@ def main():
 
         time.sleep(args.poll)
 
-    print()
+    # Fetch bot comment URLs from associated PR
+    bot_urls = []
+    pr_json = run(["gh", "pr", "list", "-R", repo, "--head", branch, "--json", "number", "--limit", "1"])
+    if pr_json:
+        prs = json.loads(pr_json)
+        if prs:
+            pr_number = prs[0]["number"]
+            comments_json = run([
+                "gh", "api", f"repos/{repo}/issues/{pr_number}/comments",
+                "--jq", '.[] | select(.user.login == "github-actions[bot]") | .body',
+            ])
+            if comments_json:
+                bot_urls = re.findall(r'https?://\S+', comments_json)
 
-    # Summarize and notify
+    # Final summary — replace the live status block
+    prev_lines = print_status(runs, prev_lines)
+    sys.stdout.write(f"\033[{prev_lines}A\033[J")
+
+    for r in runs:
+        state = r["conclusion"] or r["status"]
+        icon = STATUS_ICONS.get(state, "?")
+        print(f"{r['name']} {icon}")
+        if r["conclusion"] == "failure":
+            print(f"  https://github.com/{repo}/actions/runs/{r['databaseId']}")
+            print(f"  gh run view {r['databaseId']} -R {repo} --log-failed")
+
+    if bot_urls:
+        print()
+        for url in bot_urls:
+            print(url)
+
+    # Notify
     failed = sum(1 for r in runs if r["conclusion"] == "failure")
     cancelled = sum(1 for r in runs if r["conclusion"] == "cancelled")
     succeeded = sum(1 for r in runs if r["conclusion"] == "success")
     total = len(runs)
 
     if failed:
-        print(f"✗ {failed}/{total} failed")
         notify("Build Failed", f"{repo}@{branch}: {failed}/{total} failed", "Basso", repo_root, branch)
         sys.exit(1)
     elif cancelled and not succeeded:
-        print(f"⊘ cancelled")
         notify("Build Cancelled", f"{repo}@{branch}: cancelled", "Basso", repo_root, branch)
         sys.exit(1)
     else:
-        print(f"✓ {succeeded}/{total} passed")
         notify("Build Passed", f"{repo}@{branch}: all green", "default", repo_root, branch)
 
 
