@@ -131,8 +131,7 @@ def main():
     head_sha = git("rev-parse", "HEAD")
     short_sha = head_sha[:7]
 
-    print(f"ghw: watching {repo} @ {branch} ({short_sha})")
-    print(f"ghw: polling every {args.poll}s")
+    print(f"ghw: {repo} @ {branch} ({short_sha})")
     print()
 
     # Wait for runs to appear
@@ -142,14 +141,12 @@ def main():
         if runs:
             break
         if attempt == 0:
-            print("ghw: waiting for runs to appear...")
+            print("  waiting for runs...")
         time.sleep(5)
 
     if not runs:
-        print(f"ghw: no workflow runs found for {branch} ({short_sha})", file=sys.stderr)
+        print(f"  no workflow runs found", file=sys.stderr)
         sys.exit(1)
-
-    print(f"ghw: found {len(runs)} run(s):")
 
     # Poll loop
     prev_lines = 0
@@ -172,15 +169,15 @@ def main():
     total = len(runs)
 
     if failed:
-        print(f"ghw: ✗ FAILED ({failed}/{total} failed)")
+        print(f"✗ {failed}/{total} failed")
         notify("Build Failed", f"{repo}@{branch}: {failed}/{total} failed", "Basso", repo_root, branch)
         sys.exit(1)
     elif cancelled and not succeeded:
-        print(f"ghw: ⊘ CANCELLED")
+        print(f"⊘ cancelled")
         notify("Build Cancelled", f"{repo}@{branch}: cancelled", "Basso", repo_root, branch)
         sys.exit(1)
     else:
-        print(f"ghw: ✓ PASSED ({succeeded}/{total} succeeded)")
+        print(f"✓ {succeeded}/{total} passed")
         notify("Build Passed", f"{repo}@{branch}: all green", "default", repo_root, branch)
 
 
