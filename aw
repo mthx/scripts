@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
-"""ghw - Watch GitHub Actions for the current branch and notify on completion.
+"""aw - Watch GitHub Actions for the current branch and notify on completion.
 
 Usage:
-  ghw              Watch runs for HEAD commit on current branch
-  ghw --all        Watch all active runs on current branch (not just HEAD)
-  ghw --poll N     Set poll interval in seconds (default: 30)
+  aw              Watch runs for HEAD commit on current branch
+  aw --all        Watch all active runs on current branch (not just HEAD)
+  aw --poll N     Set poll interval in seconds (default: 30)
 
 Requires: gh (authenticated), git
 Optional: alerter (brew install vjeantet/tap/alerter) for click-to-focus
@@ -28,7 +28,7 @@ def run(cmd, **kwargs):
 def git(*args):
     out = run(["git", *args])
     if out is None:
-        print(f"ghw: git {args[0]} failed", file=sys.stderr)
+        print(f"aw: git {args[0]} failed", file=sys.stderr)
         sys.exit(1)
     return out
 
@@ -59,7 +59,7 @@ def notify(title, message, sound, repo_root, branch):
             "--message", message,
             "--sound", sound,
             "--actions", "Focus",
-            "--group", f"ghw-{title}",
+            "--group", f"aw-{title}",
             "--timeout", "30",
             "--json",
         ])
@@ -110,7 +110,7 @@ def main():
 
     branch = git("branch", "--show-current")
     if not branch:
-        print("ghw: not on a branch (detached HEAD?)", file=sys.stderr)
+        print("aw: not on a branch (detached HEAD?)", file=sys.stderr)
         sys.exit(1)
 
     repo_root = git("rev-parse", "--show-toplevel")
@@ -125,13 +125,13 @@ def main():
     repo = repo.removesuffix(".git")
 
     if "/" not in repo:
-        print(f"ghw: could not parse GitHub repo from origin: {remote_url}", file=sys.stderr)
+        print(f"aw: could not parse GitHub repo from origin: {remote_url}", file=sys.stderr)
         sys.exit(1)
 
     head_sha = git("rev-parse", "HEAD")
     short_sha = head_sha[:7]
 
-    print(f"ghw: {repo} @ {branch} ({short_sha})")
+    print(f"aw: {repo} @ {branch} ({short_sha})")
     print()
 
     # Wait for runs to appear

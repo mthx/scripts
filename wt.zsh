@@ -4,7 +4,7 @@
 #   source ~/scripts/wt.zsh
 #
 # Tab title convention: "{repo}[{branch}]" (e.g. ml-trainer[main])
-# Also used by: ghw (GitHub Actions watcher) to focus tabs on build completion
+# Also used by: aw (GitHub Actions watcher) to focus tabs on build completion
 #
 
 function wt() {
@@ -364,7 +364,7 @@ APPLESCRIPT
 
 # Focus a worktree's Ghostty tab without cd'ing.
 # Usage: wt-focus [-r <repo>] <branch>
-# Used by external tools (e.g. ghw) to focus a tab by repo+branch.
+# Used by external tools (e.g. aw) to focus a tab by repo+branch.
 function wt-focus() {
   local repo_arg=""
   if [[ "$1" == -r ]]; then
