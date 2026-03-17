@@ -189,18 +189,23 @@ function _wt_resolve_target() {
 # Remove a worktree (and close its Ghostty tab)
 function _wt_delete() {
   local main_worktree="$1"
-  _wt_resolve_target "$main_worktree" "$2" || return 1
+  shift
+  local force=""
+  if [[ "$1" == -f || "$1" == --force ]]; then
+    force="-f"
+    shift
+  fi
+  _wt_resolve_target "$main_worktree" "$1" || return 1
   local target="$REPLY"
 
   local wt_branch repo_name="${main_worktree:t}"
   wt_branch=$(git -C "$target" branch --show-current 2>/dev/null)
 
-  if [[ "$PWD" = "$target"* ]]; then
-    cd "$main_worktree" || { echo "wt: cannot cd to $main_worktree" >&2; return 1; }
-  fi
+  # Test removal in a subshell so we don't cd away on failure
+  (git worktree remove $force "$target") || return 1
 
-  git worktree remove "$target" && \
-    [[ -n "$wt_branch" ]] && _wt_ghostty_close_tab "${repo_name}[${wt_branch}]"
+  [[ "$PWD" = "$target"* ]] && cd "$main_worktree"
+  [[ -n "$wt_branch" ]] && _wt_ghostty_close_tab "${repo_name}[${wt_branch}]"
 }
 
 # Close a worktree's Ghostty tab (without removing the worktree)
@@ -364,7 +369,7 @@ Usage:
   wt .            Go to main worktree
   wt -            Switch to previous worktree (like cd -)
   wt -c [branch]  Close Ghostty tab for worktree (keeps worktree)
-  wt -d [branch]  Remove worktree and close its tab
+  wt -d [-f] [branch]  Remove worktree and close its tab (-f for dirty trees)
   wt -r <path>    Target a different repo (combine with any command above)
   wt -h           Show this help
 
