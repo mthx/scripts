@@ -6,14 +6,13 @@ Usage:
   aw --all        Watch all active runs on current branch (not just HEAD)
   aw --poll N     Set poll interval in seconds (default: 30)
 
-Requires: gh (authenticated), git
-Optional: alerter (brew install vjeantet/tap/alerter) for click-to-focus
+Requires: gh (authenticated), git, alerter (brew install vjeantet/tap/alerter)
 """
 
 import argparse
 import json
+import os
 import re
-import shutil
 import subprocess
 import sys
 import time
@@ -47,36 +46,48 @@ def gh_run_list(repo, branch, head_sha, head_only):
     return json.loads(out) if out else []
 
 
+def is_current_tab_focused():
+    """Check if the tab running this script is the frontmost Ghostty tab."""
+    result = run([
+        "osascript", "-e",
+        'tell application "System Events" to return name of first process whose frontmost is true',
+    ])
+    if result and result.lower() != "ghostty":
+        return False
+    tab_title = run([
+        "osascript", "-e",
+        'tell application "Ghostty" to return name of front window',
+    ])
+    wt_title = os.environ.get("WT_TAB_TITLE", "")
+    return bool(wt_title and tab_title and wt_title == tab_title)
+
+
 def focus_worktree(repo_root, branch):
     """Focus the Ghostty tab for a worktree via wt-focus."""
     run(["zsh", "-ic", f"wt-focus -r {repo_root} {branch}"])
 
 
 def notify(title, message, sound, repo_root, branch):
-    if shutil.which("alerter"):
-        result = run([
-            "alerter",
-            "--title", title,
-            "--message", message,
-            "--sound", sound,
-            "--actions", "Show",
-            "--group", f"aw-{title}",
-            "--timeout", "30",
-            "--json",
-        ])
-        if result:
-            try:
-                data = json.loads(result)
-                if data.get("activationType") in ("contentsClicked", "actionClicked"):
-                    focus_worktree(repo_root, branch)
-            except json.JSONDecodeError:
-                pass
-    else:
-        # osascript fallback — no click action
-        run([
-            "osascript", "-e",
-            f'display notification "{message}" with title "{title}" sound name "{sound}"',
-        ])
+    if is_current_tab_focused():
+        return
+
+    result = run([
+        "alerter",
+        "--title", title,
+        "--message", message,
+        "--sound", sound,
+        "--actions", "Show",
+        "--group", f"aw-{title}",
+        "--timeout", "30",
+        "--json",
+    ])
+    if result:
+        try:
+            data = json.loads(result)
+            if data.get("activationType") in ("contentsClicked", "actionClicked"):
+                focus_worktree(repo_root, branch)
+        except json.JSONDecodeError:
+            pass
 
 
 STATUS_ICONS = {
@@ -94,7 +105,7 @@ def print_status(runs, prev_lines):
     for r in runs:
         state = r["conclusion"] or r["status"]
         icon = STATUS_ICONS.get(state, "?")
-        lines.append(f"  {icon} {r['name']} ({state})")
+        lines.append(f"{r['name']} {icon}")
 
     print("\n".join(lines))
     sys.stdout.flush()
@@ -133,30 +144,35 @@ def main():
     short_sha = head_sha[:7]
 
     # Wait for runs to appear
+    waiting = False
     runs = []
     for attempt in range(10):
         runs = gh_run_list(repo, branch, head_sha, head_only)
         if runs:
+            if waiting:
+                sys.stdout.write("\033[1A\033[J")
             break
-        if attempt == 0:
-            print("  waiting for runs...")
+        if not waiting:
+            print("waiting for runs...")
+            waiting = True
         time.sleep(5)
 
     if not runs:
-        print(f"  no workflow runs found", file=sys.stderr)
+        print("no workflow runs found", file=sys.stderr)
         sys.exit(1)
 
-    # Poll loop
+    # Poll loop — only show live status if runs are still active
+    active = sum(1 for r in runs if r["status"] != "completed")
     prev_lines = 0
-    while True:
-        runs = gh_run_list(repo, branch, head_sha, head_only)
+    while active > 0:
         prev_lines = print_status(runs, prev_lines)
-
-        active = sum(1 for r in runs if r["status"] != "completed")
-        if active == 0:
-            break
-
         time.sleep(args.poll)
+        runs = gh_run_list(repo, branch, head_sha, head_only)
+        active = sum(1 for r in runs if r["status"] != "completed")
+
+    # Clear live status before final summary
+    if prev_lines > 0:
+        sys.stdout.write(f"\033[{prev_lines}A\033[J")
 
     # Fetch bot comment URLs from associated PR
     bot_urls = []
@@ -171,10 +187,6 @@ def main():
             ])
             if comments_json:
                 bot_urls = re.findall(r'https?://\S+', comments_json)
-
-    # Final summary — replace the live status block
-    prev_lines = print_status(runs, prev_lines)
-    sys.stdout.write(f"\033[{prev_lines}A\033[J")
 
     for r in runs:
         state = r["conclusion"] or r["status"]
