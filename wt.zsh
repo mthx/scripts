@@ -39,9 +39,22 @@ function wt() {
     -c|--close) shift; _wt_close "$main_worktree" "$@" ;;
     -d|--delete) shift; _wt_delete "$main_worktree" "$@" ;;
     -h|--help) _wt_help ;;
-    .) _wt_ghostty_switch_or_create "$main_worktree" "${main_worktree:t}" "$(git -C "$main_worktree" branch --show-current 2>/dev/null || git -C "$main_worktree" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' || echo detached)" ;;
+    .)
+      if [[ -n "$2" ]]; then
+        # wt . <branch> — create branch from main worktree's current branch
+        local main_branch
+        main_branch=$(git -C "$main_worktree" branch --show-current 2>/dev/null)
+        if [[ -z "$main_branch" ]]; then
+          echo "wt: main worktree is in detached HEAD" >&2
+          return 1
+        fi
+        _wt_create_or_switch "$main_worktree" "$main_branch" "$2"
+      else
+        _wt_ghostty_switch_or_create "$main_worktree" "${main_worktree:t}" "$(git -C "$main_worktree" branch --show-current 2>/dev/null || git -C "$main_worktree" symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||' || echo detached)"
+      fi
+      ;;
     -) _wt_prev_switch "$main_worktree" ;;
-    *) _wt_create_or_switch "$main_worktree" "$1" ;;
+    *) _wt_create_or_switch "$main_worktree" "$1" "$2" ;;
   esac
 }
 
@@ -108,38 +121,63 @@ function _wt_list() {
 }
 
 # Create worktree or cd to existing one
+# Usage: _wt_create_or_switch <main_worktree> <branch> [<base>]
+# With base: creates new branch from base (errors if worktree exists)
+# Without base: creates/switches to branch
 function _wt_create_or_switch() {
   local main_worktree="$1"
-  local branch="$2"
+  local branch base
+  if [[ -n "$3" ]]; then
+    base="$2"
+    branch="$3"
+  else
+    branch="$2"
+  fi
   local suffix
   suffix="$(_wt_dir_suffix "$branch")" || return 1
   local target="${main_worktree}--${suffix}"
   local repo_name="${main_worktree:t}"
 
-  # Already exists — just go there
-  if [[ -d "$target" ]]; then
-    _wt_ghostty_switch_or_create "$target" "$repo_name" "$branch"
-    return
-  fi
-
-  # Clean up any prunable worktrees (deleted directories) before checking
-  git worktree prune 2>/dev/null
-
-  # Branch already checked out in another worktree — cd there
-  local existing
-  existing=$(git worktree list --porcelain 2>/dev/null | awk -v b="$branch" '/^worktree /{path=$0} $0 == "branch refs/heads/" b {print path}' | sed 's/^worktree //')
-  if [[ -n "$existing" ]]; then
-    _wt_ghostty_switch_or_create "$existing" "$repo_name" "$branch"
-    return
-  fi
-
-  # Determine if branch exists locally, on remote, or is new
-  if git show-ref --verify --quiet "refs/heads/$branch" 2>/dev/null; then
-    git worktree add "$target" "$branch"
-  elif git show-ref --verify --quiet "refs/remotes/origin/$branch" 2>/dev/null; then
-    git worktree add "$target" "$branch"
+  if [[ -n "$base" ]]; then
+    # Two-arg form: create new branch from base, error if exists
+    if [[ -d "$target" ]]; then
+      echo "wt: worktree for $branch already exists at $target" >&2
+      return 1
+    fi
+    # Find base's worktree for node_modules (falls back to main)
+    local base_suffix base_worktree
+    base_suffix="$(_wt_dir_suffix "$base")" 2>/dev/null
+    base_worktree="${main_worktree}--${base_suffix}"
+    if [[ ! -d "$base_worktree" ]]; then
+      base_worktree="$main_worktree"
+    fi
+    git -C "$main_worktree" worktree add -b "$branch" "$target" "$base"
   else
-    git worktree add -b "$branch" "$target"
+    # Already exists — just go there
+    if [[ -d "$target" ]]; then
+      _wt_ghostty_switch_or_create "$target" "$repo_name" "$branch"
+      return
+    fi
+
+    # Clean up any prunable worktrees (deleted directories) before checking
+    git -C "$main_worktree" worktree prune 2>/dev/null
+
+    # Branch already checked out in another worktree — cd there
+    local existing
+    existing=$(git -C "$main_worktree" worktree list --porcelain 2>/dev/null | awk -v b="$branch" '/^worktree /{path=$0} $0 == "branch refs/heads/" b {print path}' | sed 's/^worktree //')
+    if [[ -n "$existing" ]]; then
+      _wt_ghostty_switch_or_create "$existing" "$repo_name" "$branch"
+      return
+    fi
+
+    # Determine if branch exists locally, on remote, or is new
+    if git -C "$main_worktree" show-ref --verify --quiet "refs/heads/$branch" 2>/dev/null; then
+      git -C "$main_worktree" worktree add "$target" "$branch"
+    elif git -C "$main_worktree" show-ref --verify --quiet "refs/remotes/origin/$branch" 2>/dev/null; then
+      git -C "$main_worktree" worktree add "$target" "$branch"
+    else
+      git -C "$main_worktree" worktree add -b "$branch" "$target"
+    fi
   fi
 
   if [[ $? -ne 0 ]]; then
@@ -147,8 +185,8 @@ function _wt_create_or_switch() {
     return 1
   fi
 
-  # Clone node_modules via APFS CoW if main has them
-  _wt_clone_deps "$main_worktree" "$target"
+  # Clone node_modules via APFS CoW — prefer base's worktree if available
+  _wt_clone_deps "${base_worktree:-$main_worktree}" "$target"
 
   _wt_ghostty_switch_or_create "$target" "$repo_name" "$branch"
 }
@@ -397,7 +435,8 @@ wt - zsh Git worktree manager
 
 Usage:
   wt              List worktrees (fzf picker if available)
-  wt <branch>     Create or switch to worktree for <branch>
+  wt <branch>          Create or switch to worktree for <branch>
+  wt <base> <branch>   Create new branch from base in a worktree
   wt .            Go to main worktree
   wt -            Switch to previous worktree (like cd -)
   wt -c [branch]  Close Ghostty tab for worktree (keeps worktree)
@@ -406,6 +445,7 @@ Usage:
   wt -h           Show this help
 
 Examples:
+  wt main my-feature             Create my-feature branched from main
   wt -r ~/projects/app feat-x   Switch to feat-x in another repo
   wt -r ~/projects/app -d old   Delete worktree in another repo
 
